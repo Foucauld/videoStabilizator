@@ -62,7 +62,7 @@ void detectPoints(cv::Mat & img) {
 	cv::cvtColor(img, grayImg, CV_BGR2GRAY);
 	cv::Mat mask(img.size(), CV_8UC1);
 	// on met les pixels noirs
-	mask = 0;
+	mask = (int)0;
 	cv::rectangle(mask, roi, cv::Scalar(255, 255, 255), CV_FILLED);
 
 	if (roi.area() < 10 || start.x >= 0) return;
