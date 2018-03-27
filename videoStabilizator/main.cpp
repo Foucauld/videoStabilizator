@@ -4,13 +4,11 @@
 #include <opencv2/video/video.hpp>
 #include <iostream>
 
-#include <cstdlib>
-
 
 struct Transform {
-    float dx;
-    float dy;
-    float da;
+    double dx;
+    double dy;
+    double da;
 };
 
 cv::Rect roi;
@@ -46,6 +44,22 @@ void drawLines(cv::Mat & img, std::vector<cv::Point2f> prevPoints) {
         cv::circle(img, lastPoints[i], 4, cv::Scalar(rand(), rand(), rand()));
         cv::line(img, prevPoints[i], prevPoints[i], cv::Scalar(rand(), rand(), rand()));
     }
+}
+
+cv::Mat applyTransformToImage(const Transform& t, const cv::Mat& originalImg) {
+
+    cv::Mat img = originalImg.clone();
+    cv::Mat trans_mat(2, 3, CV_64FC1);
+
+    trans_mat.at<double>(0, 0) = 1;
+    trans_mat.at<double>(0, 1) = 0;
+    trans_mat.at<double>(0, 2) = - t.dx;
+    trans_mat.at<double>(1, 0) = 0;
+    trans_mat.at<double>(1, 1) = 1;
+    trans_mat.at<double>(1, 2) = - t.dy;
+
+    cv::warpAffine(img, img, trans_mat, img.size());
+    return img;
 }
 
 void draw(cv::Mat nextInput) {
@@ -91,6 +105,19 @@ void trackPoints(cv::Mat & img) {
         //cloner nextInput dans prevInput
         lastFrame = img.clone();
         drawLines(img, prevPoints);
+        cv::Mat rigidTransform = cv::estimateRigidTransform(prevPoints, lastPoints, false);
+
+        double dx = rigidTransform.at<double>(0, 2);
+        double dy = rigidTransform.at<double>(1, 2);
+        double da = atan2(rigidTransform.at<double>(1, 0), rigidTransform.at<double>(0, 0));
+
+        if (!transforms.empty()) {
+            dx += transforms.back().dx;
+            dy += transforms.back().dy;
+            da += transforms.back().da;
+        }
+
+        transforms.push_back({dx, dy, da});
     }
     else {
         std::cout << "premiere image" << std::endl;
@@ -99,7 +126,7 @@ void trackPoints(cv::Mat & img) {
     }
 }
 
-void video(char* videoname) {
+void computeVideo(char* videoname) {
     cv::VideoCapture cap;
     if(videoname!= nullptr){
         cap.open(videoname);
@@ -121,12 +148,41 @@ void video(char* videoname) {
     cv::Mat nextInput;
     cap >> nextInput;
     int i = 0;
+    int j = cap.get(CV_CAP_PROP_FRAME_COUNT);
     while (!nextInput.empty()) {
-
+        std::cout << "compute image " << i << "/" << j << std::endl;
         trackPoints(nextInput);
 
-        draw(nextInput);
-        bool read = cap.read(nextInput);
+        cap.read(nextInput);
+        i++;
+        if (cv::waitKey(10) >= 0) break;
+    }
+}
+
+void video(char* videoname) {
+    cv::VideoCapture cap;
+    if(videoname!= nullptr){
+        cap.open(videoname);
+    } else{
+        cap.open(0);
+    }
+    if (!cap.isOpened()) {
+        return;
+    }
+
+    float width = cap.get(CV_CAP_PROP_FRAME_WIDTH);
+    float height = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
+    cap.get(CV_CAP_PROP_FRAME_COUNT);
+
+    cv::Mat nextInput;
+    cap >> nextInput;
+    int i =0;
+    while (!nextInput.empty()) {
+
+        cap.read(nextInput);
+        cv::Mat newFrame = applyTransformToImage(transforms.at(i), nextInput);
+        cv::imshow("before", nextInput);
+        cv::imshow("after", newFrame);
         i++;
         if (cv::waitKey(10) >= 0) break;
     }
@@ -136,7 +192,7 @@ void video(char* videoname) {
 int main(int argc, char** argv) {
     cv::namedWindow("input", CV_WINDOW_NORMAL);
     cv::resizeWindow("input", 800,600);
-
+    computeVideo(videoPath);
     video(videoPath);
 
     return EXIT_SUCCESS;
