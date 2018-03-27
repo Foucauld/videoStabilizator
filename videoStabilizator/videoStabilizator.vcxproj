@@ -70,8 +70,8 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>D:\Cours\VPO\opencv\build\include;$(IncludePath)</IncludePath>
-    <LibraryPath>..\videoStabilizator\opencv\build\x64\vc14\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>..\opencv\build\include;$(IncludePath)</IncludePath>
+    <LibraryPath>..\opencv\build\x64\vc14\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
