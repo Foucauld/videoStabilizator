@@ -102,10 +102,9 @@ void computeSmoothTrajectories() {
                 trj = trj + trajectories[j];
                 ++accCtr;
             }
-
         }
 
-        smoothedTrajectories.push_back(trj * (1 / accCtr));
+        smoothedTrajectories.push_back(trj * (1.0f / (float)accCtr));
         accCtr = 0;
     }
 }
