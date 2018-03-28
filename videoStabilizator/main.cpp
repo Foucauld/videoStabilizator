@@ -28,6 +28,7 @@ std::vector<cv::Point2f> prevPoints, curPoints;
 std::vector<Transform> transforms;
 std::vector<Trajectory> trajectories;
 std::vector<Trajectory> smoothedTrajectories;
+cv::VideoWriter videoWriter;
 
 void init(cv::VideoCapture& videoCapture) {
 	videoCapture.open(videoPath);
@@ -140,18 +141,36 @@ void applyTransforms(cv::VideoCapture& videoCapture) {
 
         cv::warpAffine(currentFrame, currentFrame, affineTrans, currentFrame.size());
         cv::imshow("input", currentFrame);
+        videoWriter << currentFrame;
         cv::waitKey(10);
     }
 }
 
+bool initVideoWriter(const std::string& filename, const cv::Size& size, int fps) {
+    videoWriter.open(filename, CV_FOURCC('W', 'M', 'V', '2'), fps, size, true);
+    return videoWriter.isOpened();
+}
+
 int main() {
+
 	cv::namedWindow("input", CV_WINDOW_NORMAL);
 	cv::resizeWindow("input", 800, 600);
 	cv::VideoCapture videoCapture;
-	init(videoCapture);
+
+    init(videoCapture);
+
+    cv::Size videoSize((int)videoCapture.get(CV_CAP_PROP_FRAME_WIDTH), (int)videoCapture.get(CV_CAP_PROP_FRAME_HEIGHT));
+    int fps = (int)videoCapture.get(CV_CAP_PROP_FPS);
+
 	precomputeVideo(videoCapture);
     computeSmoothTrajectories();
+
+    bool videoWriterOk = initVideoWriter("output.wmv", videoSize, fps);
+    std::cout << "Video writer is ok : " << videoWriterOk << std::endl;
+
     applyTransforms(videoCapture);
+
+    videoWriter.release();
 
 	return EXIT_SUCCESS;
 }
