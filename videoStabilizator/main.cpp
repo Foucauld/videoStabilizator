@@ -6,6 +6,18 @@
 
 struct Transform {
 	double dx, dy, da;
+
+    Transform operator+(const Transform& t) {
+        return {dx + t.dx, dy + t.dy, da + t.da};
+    }
+
+    Transform operator-(const Transform& t) {
+        return {dx - t.dx, dy - t.dy, da - t.da};
+    }
+
+    Transform operator*(double f) {
+        return {dx * f, dy * f, da * f};
+    }
 };
 
 typedef Transform Trajectory;
@@ -15,6 +27,7 @@ cv::Mat prevImg, curImg;
 std::vector<cv::Point2f> prevPoints, curPoints;
 std::vector<Transform> transforms;
 std::vector<Trajectory> trajectories;
+std::vector<Trajectory> smoothedTrajectories;
 
 void init(cv::VideoCapture& videoCapture) {
 	videoCapture.open(videoPath);
@@ -74,6 +87,29 @@ void precomputeVideo(cv::VideoCapture& videoCapture) {
 	} while (!curImg.empty());
 }
 
+void computeSmoothTrajectories() {
+
+    int chunkSize = 30;
+    int accCtr = 0;
+
+
+    for (int i = 0; i < trajectories.size(); ++i) {
+        Trajectory trj{0, 0, 0};
+        for (int j = i - chunkSize; j < i + chunkSize; ++j) {
+
+            if (j >= 0) {
+
+                trj = trj + trajectories[j];
+                ++accCtr;
+            }
+
+        }
+
+        smoothedTrajectories.push_back(trj * (1 / accCtr));
+        accCtr = 0;
+    }
+}
+
 void applyTransforms(cv::VideoCapture& videoCapture) {
 
     videoCapture.set(CV_CAP_PROP_POS_FRAMES, 0);
@@ -83,7 +119,7 @@ void applyTransforms(cv::VideoCapture& videoCapture) {
 
         videoCapture >> currentFrame;
 
-        Transform currentTransform = transforms[i];
+        Transform currentTransform = smoothedTrajectories[i];
         Trajectory lastTrajectory{0, 0, 0};
 
         if (i != 0) {
@@ -95,13 +131,13 @@ void applyTransforms(cv::VideoCapture& videoCapture) {
                                  currentTransform.da - lastTrajectory.da};
 
         cv::Mat affineTrans(2, 3, CV_64FC1);
-        
+
         affineTrans.at<double>(0, 0) = cos(imageTransform.da);
         affineTrans.at<double>(0, 1) = -sin(imageTransform.da);
         affineTrans.at<double>(1, 0) = sin(imageTransform.da);
         affineTrans.at<double>(1, 1) = cos(imageTransform.da);
-        affineTrans.at<double>(0, 2) = imageTransform.dx / 2.0f;
-        affineTrans.at<double>(1, 2) = imageTransform.dy / 2.0f;
+        affineTrans.at<double>(0, 2) = imageTransform.dx;
+        affineTrans.at<double>(1, 2) = imageTransform.dy;
 
         cv::warpAffine(currentFrame, currentFrame, affineTrans, currentFrame.size());
         cv::imshow("input", currentFrame);
@@ -115,7 +151,7 @@ int main() {
 	cv::VideoCapture videoCapture;
 	init(videoCapture);
 	precomputeVideo(videoCapture);
-
+    computeSmoothTrajectories();
     applyTransforms(videoCapture);
 
 	return EXIT_SUCCESS;
