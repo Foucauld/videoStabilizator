@@ -3,6 +3,9 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/video/video.hpp>
 #include <iostream>
+#include <clara.hpp>
+
+using namespace clara;
 
 struct Transform {
 	double dx, dy, da;
@@ -22,7 +25,6 @@ struct Transform {
 
 typedef Transform Trajectory;
 
-char* videoPath = "./cut.mp4";
 cv::Mat prevImg, curImg;
 std::vector<cv::Point2f> prevPoints, curPoints;
 std::vector<Transform> transforms;
@@ -30,11 +32,14 @@ std::vector<Trajectory> trajectories;
 std::vector<Trajectory> smoothedTrajectories;
 cv::VideoWriter videoWriter;
 
-void init(cv::VideoCapture& videoCapture) {
+void init(cv::VideoCapture& videoCapture, std::string& videoPath, int startFrame) {
 	videoCapture.open(videoPath);
 	if (!videoCapture.isOpened()) {
 		std::cerr << "problème lors de la lecture de la video" << std::endl;
 	}
+
+    videoCapture.set(CV_CAP_PROP_POS_FRAMES, startFrame);
+
 	videoCapture >> prevImg;
 	cvtColor(prevImg, prevImg, CV_BGR2GRAY);
 	cv::goodFeaturesToTrack(prevImg, prevPoints, 1000, 0.01, 10);
@@ -49,9 +54,15 @@ std::vector<cv::Point2f> purgePoints(std::vector<cv::Point2f>& points, std::vect
 	return result;
 }
 
-void precomputeVideo(cv::VideoCapture& videoCapture) {
+void precomputeVideo(cv::VideoCapture& videoCapture, int endFrame) {
 	int i = 1;
-	int j = videoCapture.get(CV_CAP_PROP_FRAME_COUNT);
+	int j = (int)videoCapture.get(CV_CAP_PROP_FRAME_COUNT);
+    int currentFrame;
+
+    if (endFrame <= 0) {
+        endFrame = (int)videoCapture.get(CV_CAP_PROP_FRAME_COUNT);
+    }
+
 	do
 	{
 		std::cout << "compute image " << i << "/" << j << std::endl;
@@ -85,7 +96,8 @@ void precomputeVideo(cv::VideoCapture& videoCapture) {
 		}
 		prevImg = curImg;
 		i++;
-	} while (!curImg.empty());
+        currentFrame = (int)videoCapture.get(CV_CAP_PROP_POS_FRAMES);
+	} while (!curImg.empty() && currentFrame < endFrame);
 }
 
 void computeSmoothTrajectories() {
@@ -110,8 +122,9 @@ void computeSmoothTrajectories() {
     }
 }
 
-void applyTransforms(cv::VideoCapture& videoCapture) {
+void applyTransforms(cv::VideoCapture& videoCapture, bool shouldWriteOutputVideo, bool shouldPreview) {
 
+    int fps = (int)videoCapture.get(CV_CAP_PROP_FPS);
     videoCapture.set(CV_CAP_PROP_POS_FRAMES, 0);
 
     cv::Mat currentFrame;
@@ -140,9 +153,16 @@ void applyTransforms(cv::VideoCapture& videoCapture) {
         affineTrans.at<double>(1, 2) = imageTransform.dy;
 
         cv::warpAffine(currentFrame, currentFrame, affineTrans, currentFrame.size());
-        cv::imshow("input", currentFrame);
-        videoWriter << currentFrame;
-        cv::waitKey(10);
+
+        if (shouldPreview) {
+            cv::imshow("input", currentFrame);
+        }
+
+        if (shouldWriteOutputVideo) {
+            videoWriter << currentFrame;
+        }
+
+        cv::waitKey(1000 / fps);
     }
 }
 
@@ -151,24 +171,64 @@ bool initVideoWriter(const std::string& filename, const cv::Size& size, int fps)
     return videoWriter.isOpened();
 }
 
-int main() {
+int main(int argc, const char * const *argv) {
 
-	cv::namedWindow("input", CV_WINDOW_NORMAL);
-	cv::resizeWindow("input", 800, 600);
+    std::string inputVideo = "";
+    std::string outputVideo = "";
+    int startFrame = 0;
+    int endFrame = 0;
+    bool shouldWriteOutputVideo = false;
+    bool shouldPreview = false;
+    auto cli =
+            Opt(inputVideo, "inputVideo")
+                ["-i"]["--input"]
+                ("Path to the input video to stabilize") |
+            Opt(outputVideo, "outputVideo")
+                ["-o"]["--output"]
+                ("Path to the output video") |
+            Opt(shouldPreview)
+                ["-p"]["--preview"]
+                ("Should we display a video preview") |
+            Opt(startFrame, "startFrame")
+                ["-s"]["--start-frame"]
+                ("Start from frame") |
+            Opt(endFrame, "endFrame")
+                ["-e"]["--end-frame"]
+                ("End at frame");
+
+    auto result = cli.parse(Args(argc, argv));
+    if (!result) {
+        std::cerr << "Error in command line : " << result.errorMessage() << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    if (inputVideo.empty()) {
+        std::cerr << "Missing parameter inputVideo (--input)" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    shouldWriteOutputVideo = !outputVideo.empty();
+
+    if (shouldPreview) {
+        cv::namedWindow("input", CV_WINDOW_NORMAL);
+        cv::resizeWindow("input", 800, 600);
+    }
+
 	cv::VideoCapture videoCapture;
-
-    init(videoCapture);
+    init(videoCapture, inputVideo, startFrame);
 
     cv::Size videoSize((int)videoCapture.get(CV_CAP_PROP_FRAME_WIDTH), (int)videoCapture.get(CV_CAP_PROP_FRAME_HEIGHT));
     int fps = (int)videoCapture.get(CV_CAP_PROP_FPS);
 
-	precomputeVideo(videoCapture);
+	precomputeVideo(videoCapture, endFrame);
     computeSmoothTrajectories();
 
-    bool videoWriterOk = initVideoWriter("output.wmv", videoSize, fps);
-    std::cout << "Video writer is ok : " << videoWriterOk << std::endl;
+    if (shouldWriteOutputVideo) {
+        bool videoWriterOk = initVideoWriter(outputVideo, videoSize, fps);
+        std::cout << "Video writer is ok : " << videoWriterOk << std::endl;
+    }
 
-    applyTransforms(videoCapture);
+    applyTransforms(videoCapture, shouldWriteOutputVideo, shouldPreview);
 
     videoWriter.release();
 
