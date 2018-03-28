@@ -8,10 +8,13 @@ struct Transform {
 	double dx, dy, da;
 };
 
-char* videoPath = "./videoplayback2.mp4";
+typedef Transform Trajectory;
+
+char* videoPath = "./cut.mp4";
 cv::Mat prevImg, curImg;
 std::vector<cv::Point2f> prevPoints, curPoints;
 std::vector<Transform> transforms;
+std::vector<Trajectory> trajectories;
 
 void init(cv::VideoCapture& videoCapture) {
 	videoCapture.open(videoPath);
@@ -54,15 +57,16 @@ void precomputeVideo(cv::VideoCapture& videoCapture) {
 			double dx = rigidTransform.at<double>(0, 2);
 			double dy = rigidTransform.at<double>(1, 2);
 			double da = atan2(rigidTransform.at<double>(1, 0), rigidTransform.at<double>(0, 0));
-			if (!transforms.empty()) {
-				dx += transforms.back().dx;
-				dy += transforms.back().dy;
-				da += transforms.back().da;
+            transforms.push_back({dx, dy, da});
+			if (!trajectories.empty()) {
+				dx += trajectories.back().dx;
+				dy += trajectories.back().dy;
+				da += trajectories.back().da;
 			}
-			transforms.push_back({ dx, dy, da });
+			trajectories.push_back({ dx, dy, da });
 		}
 		else {
-			transforms.push_back(transforms.back());
+			trajectories.push_back(trajectories.back());
 			std::cerr << "Pas de transform trouvee" << std::endl;
 		}
 		prevImg = curImg;
@@ -70,6 +74,40 @@ void precomputeVideo(cv::VideoCapture& videoCapture) {
 	} while (!curImg.empty());
 }
 
+void applyTransforms(cv::VideoCapture& videoCapture) {
+
+    videoCapture.set(CV_CAP_PROP_POS_FRAMES, 0);
+
+    cv::Mat currentFrame;
+    for (int i = 0; i < transforms.size(); ++i) {
+
+        videoCapture >> currentFrame;
+
+        Transform currentTransform = transforms[i];
+        Trajectory lastTrajectory{0, 0, 0};
+
+        if (i != 0) {
+            lastTrajectory = trajectories[i - 1];
+        }
+
+        Transform imageTransform{currentTransform.dx - lastTrajectory.dx,
+                                 currentTransform.dy - lastTrajectory.dy,
+                                 currentTransform.da - lastTrajectory.da};
+
+        cv::Mat affineTrans(2, 3, CV_64FC1);
+        
+        affineTrans.at<double>(0, 0) = cos(imageTransform.da);
+        affineTrans.at<double>(0, 1) = -sin(imageTransform.da);
+        affineTrans.at<double>(1, 0) = sin(imageTransform.da);
+        affineTrans.at<double>(1, 1) = cos(imageTransform.da);
+        affineTrans.at<double>(0, 2) = imageTransform.dx / 2.0f;
+        affineTrans.at<double>(1, 2) = imageTransform.dy / 2.0f;
+
+        cv::warpAffine(currentFrame, currentFrame, affineTrans, currentFrame.size());
+        cv::imshow("input", currentFrame);
+        cv::waitKey(10);
+    }
+}
 
 int main() {
 	cv::namedWindow("input", CV_WINDOW_NORMAL);
@@ -77,6 +115,8 @@ int main() {
 	cv::VideoCapture videoCapture;
 	init(videoCapture);
 	precomputeVideo(videoCapture);
+
+    applyTransforms(videoCapture);
 
 	return EXIT_SUCCESS;
 }
